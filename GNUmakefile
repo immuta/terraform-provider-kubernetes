@@ -47,7 +47,7 @@ test-compile:
 targets: $(TARGETS)
 
 $(TARGETS):
-	GOOS=$@ GOARCH=amd64 go build -o "dist/$@/terraform-provider-kubernetes_${TRAVIS_TAG}"
+	GOOS=$@ GOARCH=amd64 CGO_ENABLED=0 go build -o "dist/$@/terraform-provider-kubernetes_${TRAVIS_TAG}" -a -ldflags '-extldflags "-static"'
 	zip -j dist/terraform-provider-kubernetes_${TRAVIS_TAG}_$@_amd64.zip dist/$@/terraform-provider-kubernetes_${TRAVIS_TAG}
 
 .PHONY: build test testacc vet fmt fmtcheck errcheck vendor-status test-compile targets $(TARGETS)

@@ -5,10 +5,9 @@ import (
 	"log"
 
 	"github.com/hashicorp/terraform/helper/schema"
-	rbacv1 "k8s.io/api/rbac/v1"
+	api "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	pkgApi "k8s.io/apimachinery/pkg/types"
 )
 
 func resourceKubernetesClusterRoleBinding() *schema.Resource {
@@ -23,60 +22,24 @@ func resourceKubernetesClusterRoleBinding() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"metadata": rbacMetadataSchema("cluster role binding", true),
+			"metadata": metadataSchema("cluster role binding", true),
 			"role_ref": {
-				Type:        schema.TypeMap,
-				Description: "RoleRef contains information that points to the role being used",
+				Type:        schema.TypeList,
+				Description: "RoleRef can only reference a ClusterRole in the global namespace. If the RoleRef cannot be resolved, the Authorizer must return an error. See official documentation: https://v1-9.docs.kubernetes.io/docs/reference/generated/kubernetes-api/v1.9/#roleref-v1-rbac",
 				Required:    true,
-				ForceNew:    true,
+				MinItems:    1,
+				MaxItems:    1,
 				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"api_group": {
-							Type:        schema.TypeString,
-							Description: "APIGroup holds the API group of the referenced subject. Defaults to \"\" for ServiceAccount subjects. Defaults to \"rbac.authorization.k8s.io\" for User and Group subjects.",
-							Required:    true,
-						},
-						"kind": {
-							Type:        schema.TypeString,
-							Description: "Kind is the type of resource being referenced",
-							Required:    true,
-						},
-						"name": {
-							Type:        schema.TypeString,
-							Description: "Name is the name of resource being referenced",
-							Required:    true,
-						},
-					},
+					Schema: roleRefFields(),
 				},
 			},
 			"subject": {
 				Type:        schema.TypeList,
-				Description: "Subjects holds references to the objects the role applies to",
+				Description: "Subjects holds references to the objects the role applies to.",
 				Required:    true,
-				ForceNew:    false,
+				MinItems:    1,
 				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"kind": {
-							Type:        schema.TypeString,
-							Description: "Kind of object being referenced. Values defined by this API group are \"User\", \"Group\", and \"ServiceAccount\". If the Authorizer does not recognized the kind value, the Authorizer should report an error.",
-							Required:    true,
-						},
-						"api_group": {
-							Type:        schema.TypeString,
-							Description: "APIGroup holds the API group of the referenced subject. Defaults to \"\" for ServiceAccount subjects. Defaults to \"rbac.authorization.k8s.io\" for User and Group subjects.",
-							Optional:    true,
-						},
-						"name": {
-							Type:        schema.TypeString,
-							Description: "Name of the object being referenced.",
-							Required:    true,
-						},
-						"namespace": {
-							Type:        schema.TypeString,
-							Description: "Namespace of the referenced object. If the object kind is non-namespace, such as \"User\" or \"Group\", and this value is not empty the Authorizer should report an error.",
-							Optional:    true,
-						},
-					},
+					Schema: rbacSubjectFields(),
 				},
 			},
 		},
@@ -86,13 +49,14 @@ func resourceKubernetesClusterRoleBinding() *schema.Resource {
 func resourceKubernetesClusterRoleBindingCreate(d *schema.ResourceData, meta interface{}) error {
 	conn := meta.(*kubernetesProvider).conn
 
-	clusterRoleBinding := rbacv1.ClusterRoleBinding{
-		ObjectMeta: expandMetadata(d.Get("metadata").([]interface{})),
-		RoleRef:    expandRoleRef(d.Get("role_ref").(map[string]interface{})),
+	metadata := expandMetadata(d.Get("metadata").([]interface{}))
+	crb := api.ClusterRoleBinding{
+		ObjectMeta: metadata,
+		RoleRef:    expandRoleRef(d.Get("role_ref").([]interface{})[0]),
 		Subjects:   expandSubjects(d.Get("subject").([]interface{})),
 	}
-	log.Printf("[INFO] Creating new cluster role binding map: %#v", clusterRoleBinding)
-	out, err := conn.RbacV1().ClusterRoleBindings().Create(&clusterRoleBinding)
+	log.Printf("[INFO] Creating new cluster role binding: %#v", crb)
+	out, err := conn.RbacV1().ClusterRoleBindings().Create(&crb)
 	if err != nil {
 		return err
 	}
@@ -109,7 +73,6 @@ func resourceKubernetesClusterRoleBindingRead(d *schema.ResourceData, meta inter
 	if err != nil {
 		return err
 	}
-
 	log.Printf("[INFO] Reading cluster role binding %s", name)
 	crb, err := conn.RbacV1().ClusterRoleBindings().Get(name, metav1.GetOptions{})
 	if err != nil {
@@ -121,17 +84,54 @@ func resourceKubernetesClusterRoleBindingRead(d *schema.ResourceData, meta inter
 	if err != nil {
 		return err
 	}
+	d.Set("role_ref", flattenRoleRef(crb.RoleRef))
+	d.Set("subject", flattenSubjects(crb.Subjects))
 
-	err = d.Set("role_ref", flattenRoleRef(crb.RoleRef))
+	return nil
+}
+
+func resourceKubernetesClusterRoleBindingUpdate(d *schema.ResourceData, meta interface{}) error {
+	conn := meta.(*kubernetesProvider).conn
+
+	_, name, err := idParts(d.Id())
 	if err != nil {
 		return err
 	}
 
-	err = d.Set("subject", flattenSubjects(crb.Subjects))
+	metadata := expandMetadata(d.Get("metadata").([]interface{}))
+	crb := api.ClusterRoleBinding{
+		ObjectMeta: metadata,
+		RoleRef:    expandRoleRef(d.Get("role_ref").([]interface{})[0]),
+		Subjects:   expandSubjects(d.Get("subject").([]interface{})),
+	}
+
+	log.Printf("[INFO] Updating cluster role binding %q: %v", name, crb)
+	out, err := conn.RbacV1().ClusterRoleBindings().Update(&crb)
+	if err != nil {
+		return fmt.Errorf("Failed to update cluster role binding: %s", err)
+	}
+	log.Printf("[INFO] Submitted updated cluster role binding: %#v", out)
+	d.SetId(buildId(out.ObjectMeta))
+
+	return resourceKubernetesClusterRoleBindingRead(d, meta)
+}
+
+func resourceKubernetesClusterRoleBindingDelete(d *schema.ResourceData, meta interface{}) error {
+	conn := meta.(*kubernetesProvider).conn
+
+	_, name, err := idParts(d.Id())
+	if err != nil {
+		return err
+	}
+	log.Printf("[INFO] Deleting cluster role binding: %#v", name)
+	err = conn.RbacV1().ClusterRoleBindings().Delete(name, &metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
 
+	log.Printf("[INFO] cluster role binding %s deleted", name)
+
+	d.SetId("")
 	return nil
 }
 
@@ -152,60 +152,4 @@ func resourceKubernetesClusterRoleBindingExists(d *schema.ResourceData, meta int
 		log.Printf("[DEBUG] Received error: %#v", err)
 	}
 	return true, err
-}
-
-func resourceKubernetesClusterRoleBindingUpdate(d *schema.ResourceData, meta interface{}) error {
-	conn := meta.(*kubernetesProvider).conn
-
-	_, name, err := idParts(d.Id())
-	if err != nil {
-		return err
-	}
-
-	ops := patchMetadata("metadata.0.", "/metadata/", d)
-
-	if d.HasChange("role_ref") {
-		return fmt.Errorf("Failed to update cluster role binding: cannot change role ref")
-	}
-
-	if d.HasChange("subject") {
-		subjects := expandSubjects(d.Get("subject").([]interface{}))
-		ops = append(ops, &ReplaceOperation{
-			Path:  "/subjects",
-			Value: subjects,
-		})
-	}
-
-	data, err := ops.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("Failed to marshal update operations: %s", err)
-	}
-
-	log.Printf("[INFO] Updating cluster role binding %s", name)
-	out, err := conn.RbacV1().ClusterRoleBindings().Patch(name, pkgApi.JSONPatchType, data)
-	if err != nil {
-		return fmt.Errorf("Failed to update cluster role binding: %s", err)
-	}
-	log.Printf("[INFO] Submitted updated cluster role binding %#v", out)
-
-	return resourceKubernetesClusterRoleBindingRead(d, meta)
-}
-
-func resourceKubernetesClusterRoleBindingDelete(d *schema.ResourceData, meta interface{}) error {
-	conn := meta.(*kubernetesProvider).conn
-
-	_, name, err := idParts(d.Id())
-	if err != nil {
-		return err
-	}
-	log.Printf("[INFO] Deleting cluster role binding: %#v", name)
-	err = conn.RbacV1().ClusterRoleBindings().Delete(name, &metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	log.Printf("[INFO] Cluster role binding %s deleted", name)
-
-	d.SetId("")
-	return nil
 }

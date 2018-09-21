@@ -3,10 +3,16 @@
 This provider is a fork of the official Kubernetes provider developed by HashiCorp.
 This fork supports the following resources in addition to the official provider:
 
-- `DaemonSets`
-- `Deployments`
-- `Ingress`
-- `StatefulSets`
+- Cluster Role `kubernetes_cluster_role`
+- Cluster Role Binding `kubernetes_cluster_role_binding`
+- Cron Job `kubernetes_cron_job`
+- Daemonset `kubernetes_daemonset`
+- Deployment `kubernetes_deployment`
+- Ingress `kubernetes_ingress`
+- Job `kubernetes_job`
+- Role `kubernetes_role`
+- Role Binding `kubernetes_role_binding`
+- Stateful Set `kubernetes_stateful_set`
 
 ## Supported Kubernetes Versions
 
@@ -15,6 +21,7 @@ The latest build of this provider uses v6.0 of the kubernetes [client-go](https:
 - 1.7.x
 - 1.8.x
 - 1.9.x
+- 1.10.x
 
 ## Requirements
 
@@ -27,7 +34,7 @@ Clone repository to: `$GOPATH/src/github.com/sl1pm4t/terraform-provider-kubernet
 
 ```sh
 $ mkdir -p $GOPATH/src/github.com/sl1pm4t; cd $GOPATH/src/github.com/sl1pm4t
-$ git clone git@github.com:sl1pm4t/terraform-provider-kubernetes
+$ git clone https://github.com/sl1pm4t/terraform-provider-kubernetes
 ```
 
 Enter the provider directory and build the provider
@@ -35,6 +42,18 @@ Enter the provider directory and build the provider
 ```sh
 $ cd $GOPATH/src/github.com/sl1pm4t/terraform-provider-kubernetes
 $ make build
+```
+
+Alternatively, use the golang docker to build the provider
+
+1. clone this repo: https://github.com/sl1pm4t/terraform-provider-kubernetes.git
+2. run: 
+```docker run --rm -v <location of cloned repo above>:/go/src/github.com/sl1pm4t/terraform-provider-kubernetes/ -w /go/src/github.com/sl1pm4t/terraform-provider-kubernetes/ -e GOOS=windows -e GOARCH=386 golang go build -v
+```
+be sure to use the appropriate OS and architecture for your environment (see official docker for golang)
+3. From the root director of your terraform project, run
+```
+terraform init --plugin-dir=<location of the plugin executable built in step 2>`
 ```
 
 ## Using the provider

@@ -1,109 +1,126 @@
 package kubernetes
 
 import (
-	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/api/rbac/v1"
 )
 
-func expandRules(in []interface{}) []rbacv1.PolicyRule {
+func expandClusterRoleRule(in []interface{}) []v1.PolicyRule {
 	if len(in) == 0 {
-		return []rbacv1.PolicyRule{}
+		return []v1.PolicyRule{}
+	}
+	rules := make([]v1.PolicyRule, len(in))
+
+	for i, rule := range in {
+		r := v1.PolicyRule{}
+
+		ruleCfg := rule.(map[string]interface{})
+		if v, ok := ruleCfg["api_groups"]; ok {
+			r.APIGroups = expandStringSlice(v.([]interface{}))
+		}
+		if v, ok := ruleCfg["non_resource_urls"]; ok {
+			r.NonResourceURLs = expandStringSlice(v.([]interface{}))
+		}
+		if v, ok := ruleCfg["resource_names"]; ok {
+			r.ResourceNames = expandStringSlice(v.([]interface{}))
+		}
+		if v, ok := ruleCfg["resources"]; ok {
+			r.Resources = expandStringSlice(v.([]interface{}))
+		}
+		if v, ok := ruleCfg["verbs"]; ok {
+			r.Verbs = expandStringSlice(v.([]interface{}))
+		}
+
+		rules[i] = r
 	}
 
-	rules := make([]rbacv1.PolicyRule, len(in))
-
-	for i, v := range in {
-		rule := v.(map[string]interface{})
-
-		if verbs, ok := rule["verbs"].([]interface{}); ok {
-			rules[i].Verbs = expandStringSlice(verbs)
-		}
-		if api_groups, ok := rule["api_groups"].([]interface{}); ok {
-			rules[i].APIGroups = expandStringSlice(api_groups)
-		}
-		if resources, ok := rule["resources"].([]interface{}); ok {
-			rules[i].Resources = expandStringSlice(resources)
-		}
-		if resource_names, ok := rule["resource_names"].([]interface{}); ok {
-			rules[i].ResourceNames = expandStringSlice(resource_names)
-		}
-		if non_resource_urls, ok := rule["non_resource_urls"].([]interface{}); ok {
-			rules[i].NonResourceURLs = expandStringSlice(non_resource_urls)
-		}
-	}
 	return rules
 }
 
-func flattenRules(in []rbacv1.PolicyRule) []interface{} {
-	rules := make([]interface{}, len(in))
+func expandRoleRef(in interface{}) v1.RoleRef {
+	obj := v1.RoleRef{}
+
+	rrCfg := in.(map[string]interface{})
+
+	if v, ok := rrCfg["api_group"]; ok {
+		obj.APIGroup = v.(string)
+	}
+	if v, ok := rrCfg["kind"]; ok {
+		obj.Kind = v.(string)
+	}
+	if v, ok := rrCfg["name"]; ok {
+		obj.Name = v.(string)
+	}
+
+	return obj
+}
+
+func expandSubjects(in []interface{}) []v1.Subject {
+	if len(in) < 1 {
+		return []v1.Subject{}
+	}
+	subs := make([]v1.Subject, len(in))
+
 	for i, v := range in {
-		rule := make(map[string]interface{})
-		rule["verbs"] = v.Verbs
-		rule["api_groups"] = v.APIGroups
-		rule["resources"] = v.Resources
-		rule["resource_names"] = v.ResourceNames
-		rule["non_resource_urls"] = v.NonResourceURLs
-		rules[i] = rule
+		subCfg := v.(map[string]interface{})
+		sub := v1.Subject{}
+
+		if v, ok := subCfg["api_group"]; ok {
+			sub.APIGroup = v.(string)
+		}
+		if v, ok := subCfg["kind"]; ok {
+			sub.Kind = v.(string)
+		}
+		if v, ok := subCfg["name"]; ok {
+			sub.Name = v.(string)
+		}
+		if v, ok := subCfg["namespace"]; ok {
+			sub.Namespace = v.(string)
+		}
+		subs[i] = sub
 	}
-	return rules
+
+	return subs
 }
 
-func expandRoleRef(in map[string]interface{}) rbacv1.RoleRef {
-	return rbacv1.RoleRef{
-		APIGroup: in["api_group"].(string),
-		Kind:     in["kind"].(string),
-		Name:     in["name"].(string),
-	}
-}
+// Flatteners
+func flattenClusterRoleRules(in []v1.PolicyRule) []interface{} {
+	att := make([]interface{}, len(in), len(in))
+	for i, n := range in {
+		m := make(map[string]interface{})
 
-func flattenRoleRef(in rbacv1.RoleRef) interface{} {
-	att := make(map[string]interface{})
-	att["api_group"] = in.APIGroup
-	att["kind"] = in.Kind
-	att["name"] = in.Name
+		m["api_groups"] = n.APIGroups
+		m["non_resource_urls"] = n.NonResourceURLs
+		m["resource_names"] = n.ResourceNames
+		m["resources"] = n.Resources
+		m["verbs"] = n.Verbs
+
+		att[i] = m
+	}
 
 	return att
 }
 
-func expandSubjects(s []interface{}) []rbacv1.Subject {
-	if len(s) == 0 {
-		return []rbacv1.Subject{}
-	}
+func flattenRoleRef(in v1.RoleRef) []interface{} {
+	m := make(map[string]interface{})
 
-	subjects := make([]rbacv1.Subject, len(s))
+	m["api_group"] = in.APIGroup
+	m["kind"] = in.Kind
+	m["name"] = in.Name
 
-	for i, v := range s {
-		subject := v.(map[string]interface{})
-
-		if kind, ok := subject["kind"].(string); ok {
-			subjects[i].Kind = kind
-		}
-
-		if api_group, ok := subject["api_group"].(string); ok {
-			subjects[i].APIGroup = api_group
-		}
-
-		if name, ok := subject["name"].(string); ok {
-			subjects[i].Name = name
-		}
-
-		if namespace, ok := subject["namespace"].(string); ok {
-			subjects[i].Namespace = namespace
-		}
-	}
-
-	return subjects
+	return []interface{}{m}
 }
-func flattenSubjects(in []rbacv1.Subject) []interface{} {
-	att := make([]interface{}, len(in))
-	for i, v := range in {
-		obj := make(map[string]interface{})
-		obj["kind"] = v.Kind
-		if v.APIGroup != "" {
-			obj["api_group"] = v.APIGroup
-		}
-		obj["name"] = v.Name
-		obj["namespace"] = v.Namespace
-		att[i] = obj
+
+func flattenSubjects(in []v1.Subject) []interface{} {
+	att := make([]interface{}, len(in), len(in))
+	for i, n := range in {
+		m := make(map[string]interface{})
+
+		m["api_group"] = n.APIGroup
+		m["kind"] = n.Kind
+		m["name"] = n.Name
+		m["namespace"] = n.Namespace
+
+		att[i] = m
 	}
 
 	return att

@@ -89,9 +89,7 @@ func resourceKubernetesPersistentVolume() *schema.Resource {
 							Type:        schema.TypeList,
 							Description: "A list of mount options, e.g. [\"ro\", \"soft\"]. Not validated - mount will simply fail if one is invalid. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#mount-options",
 							Optional:    true,
-							Elem: &schema.Schema{
-								Type: schema.TypeString,
-							},
+							Elem:        &schema.Schema{Type: schema.TypeString},
 						},
 						"persistent_volume_reclaim_policy": {
 							Type:        schema.TypeString,
